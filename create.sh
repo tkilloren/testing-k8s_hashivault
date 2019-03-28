@@ -45,6 +45,7 @@ oc apply -f openshift/vault.yaml
 oc create sa vault-auth
 oc adm policy add-cluster-role-to-user system:auth-delegator system:serviceaccount:vault-controller:vault-auth
 
+#sleep 30
 
 # Login to vault as root account
 VAULT_ADDR="http://$(oc -n vault get route vault --template='{{ .spec.host }}')"
@@ -54,19 +55,27 @@ vault login root_token
 # Enable and configure kubernetes auth plugin
 vault auth enable kubernetes
 
-export VAULT_SA_JWT_NAME=$(oc get sa vault-auth -o jsonpath="{.secrets[*]['name']}"\
-   |awk '$1 ~/-token-/ {print $1}')
+vault_sa_jwt_name=$( \
+  oc get sa vault-auth \
+     -o jsonpath="{.secrets[*]['name']}" \
+  |awk '{for(i=1;i<=NF;i++){if($i ~/-token-/){print $i}}}' \
+)
 
-export VAULT_SA_JWT=$(oc get secret $VAULT_SA_JWT_NAME -o jsonpath="{.data.token}"\
-   |base64 --decode; echo)
+vault_sa_jwt=$( \
+  oc get secret ${vault_sa_jwt_name} \
+     -o jsonpath="{.data.token}" \
+  |base64 --decode; echo \
+)
 
-export VAULT_SA_CA=$(oc get secret $VAULT_SA_JWT_NAME \
-                     -o jsonpath="{.data['ca\.crt']}" \
-                    |base64 --decode; echo)
+vault_sa_ca=$( \
+  oc get secret $vault_sa_jwt_name \
+     -o jsonpath="{.data['ca\.crt']}" \
+  |base64 --decode; echo \
+)
 
-export K8_URL=$(minishift console --url)
+export k8s_url=$(minishift console --url)
 
 vault write auth/kubernetes/config \
-  token_reviewer_jwt="$VAULT_SA_JWT" \
-  kubernetes_host="$K8_URL" \
-  kubernetes_ca_cert="$VAULT_SA_CA"
+  token_reviewer_jwt="$vault_sa_jwt" \
+  kubernetes_host="$k8s_url" \
+  kubernetes_ca_cert="$vault_sa_ca"
