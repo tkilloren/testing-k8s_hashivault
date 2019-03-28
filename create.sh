@@ -17,6 +17,7 @@ minishift start \
 # See https://github.com/minishift/minishift/issues/2107
 minishift addon apply admin-user
 
+export k8s_url=$(minishift console --url)
 
 #===========================
 # Install Vault
@@ -24,8 +25,8 @@ minishift addon apply admin-user
 # Add minishift's oc cli to path
 eval $(minishift oc-env)
 
-# Login as a cluster admin
-oc login -u admin -p admin
+# Login as cluster admin
+oc login -u admin -p admin || exit 1
 
 # Create a namespace for HashiVault
 oc new-project vault
@@ -45,11 +46,15 @@ oc apply -f openshift/vault.yaml
 oc create sa vault-auth
 oc adm policy add-cluster-role-to-user system:auth-delegator system:serviceaccount:vault-controller:vault-auth
 
-#sleep 30
-
-# Login to vault as root account
 VAULT_ADDR="http://$(oc -n vault get route vault --template='{{ .spec.host }}')"
 export VAULT_ADDR
+
+while ! curl -s "${VAULT_ADDR}/healthz" | grep -q '{"errors":\[\]}'; do
+  echo '  waiting for vault api...'
+  sleep 1
+done
+
+# Login to vault as root account
 vault login root_token
 
 # Enable and configure kubernetes auth plugin
@@ -73,7 +78,6 @@ vault_sa_ca=$( \
   |base64 --decode; echo \
 )
 
-export k8s_url=$(minishift console --url)
 
 vault write auth/kubernetes/config \
   token_reviewer_jwt="$vault_sa_jwt" \
